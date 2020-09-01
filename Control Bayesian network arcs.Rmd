@@ -1,0 +1,169 @@
+---
+title: "Control Bayesian network arcs"
+author: "Aaron Smith"
+date: "6/23/2020"
+output: word_document
+---
+
+Let's build some Bayesian networks where we decide to include or exclude arcs before learning the model.
+
+# Load the data
+
+We will use the Groceries data set from the arules package. We will only use the ten most frequently purchased items.
+
+```{r}
+options(digits = 1)
+data(Groceries,package = "arules")
+Groceries
+
+M_Groceries <- as.data.frame(as(
+  object = Groceries,
+  Class = "matrix"
+))
+colnames(M_Groceries) <- make.names(colnames(M_Groceries))
+M_Groceries <- M_Groceries[
+  order(rowSums(M_Groceries),decreasing = TRUE),
+  order(colSums(M_Groceries),decreasing = TRUE)
+]
+M_Groceries <- M_Groceries[,1:10]
+M_Groceries <- M_Groceries[
+  order(rowSums(M_Groceries),decreasing = TRUE),
+  order(colSums(M_Groceries),decreasing = TRUE)
+]
+for(j in 1:ncol(M_Groceries)) M_Groceries[,j] <- factor(as.numeric(M_Groceries[,j]))
+```
+
+# Learn the models
+
+## A model with no predetermined arcs
+
+```{r}
+require(bnlearn)
+
+hc_Groceries_1 <- hc(
+  x = M_Groceries
+)
+graphviz.plot(
+  x = hc_Groceries_1,
+  shape = "ellipse"
+)
+```
+
+## A model with predetermined arcs to be included
+
+We use a white list data frame to tell R which arcs to include in the model. The white list arcs are added to the nodes, then the remaining possible arcs are evaluated for being worthy of inclusion.
+
+The white list data frame has to fields, from and to.
+
+```{r}
+whitelist <- data.frame(
+  from = c("sausage","root.vegetables"),
+  to = c("rolls.buns","other.vegetables")
+)
+hc_Groceries_2 <- hc(
+  x = M_Groceries,
+  whitelist = whitelist
+)
+graphviz.plot(
+  x = hc_Groceries_2,
+  shape = "ellipse"
+)
+```
+
+## A model with predetermined arcs to be excluded
+
+We use a black list data frame to exclude arcs from our model. These combinations of variables are skipped over for evaluation of being worth of inclusion in the model.
+
+The black list data frame has to fields, from and to.
+
+```{r}
+blacklist <- data.frame(
+  from = c("bottled.water","soda"),
+  to = c("soda","bottled.water")
+)
+hc_Groceries_3 <- hc(
+  x = M_Groceries,
+  blacklist = blacklist
+)
+graphviz.plot(
+  x = hc_Groceries_3,
+  shape = "ellipse"
+)
+```
+
+## A model with predetermined arcs to be included and arcs to be excluded
+
+```{r}
+hc_Groceries_4 <- hc(
+  x = M_Groceries,
+  whitelist = whitelist,
+  blacklist = blacklist
+)
+graphviz.plot(
+  x = hc_Groceries_4,
+  shape = "ellipse"
+)
+```
+
+# Adjusting arcs after the model was built
+
+## Letting data pick the direction
+
+The choose.direction() function enables us to add an arc when we know there should be one, but we do not know the direction, or double check if an arc is pointed in the correct manner. Note: the function will not switch the direction if it would result in a cycle in the graph.
+
+```{r}
+arcs(hc_Groceries_1)
+hc_Groceries_1 <- choose.direction(
+  x = hc_Groceries_1,
+  arc = c("soda","shopping.bags"),
+  data = M_Groceries
+)
+graphviz.plot(
+  x = hc_Groceries_1,
+  shape = "ellipse"
+)
+```
+
+## Adding an arc after the model was built
+
+```{r}
+hc_Groceries_1 <- set.arc(
+  x = hc_Groceries_1,
+  from = "tropical.fruit",
+  to = "soda",
+  check.cycles = FALSE
+)
+graphviz.plot(
+  x = hc_Groceries_1,
+  shape = "ellipse"
+)
+```
+
+## Reversing an arc's direction
+
+```{r}
+hc_Groceries_1 <- reverse.arc(
+  x = hc_Groceries_1,
+  from = "tropical.fruit",
+  to = "soda",
+  check.cycles = FALSE
+)
+graphviz.plot(
+  x = hc_Groceries_1,
+  shape = "ellipse"
+)
+```
+
+## Dropping an arc after the model was built
+
+```{r}
+hc_Groceries_1 <- drop.arc(
+  x = hc_Groceries_1,
+  from = "tropical.fruit",
+  to = "soda"
+)
+graphviz.plot(
+  x = hc_Groceries_1,
+  shape = "ellipse"
+)
+```

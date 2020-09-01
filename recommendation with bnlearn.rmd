@@ -1,0 +1,173 @@
+---
+title: 'Case study: recommendation system with bnlearn'
+author: "Aaron Smith"
+date: "6/20/2020"
+output: word_document
+---
+
+Let's build a recommendation system using R's bnlearn package. Our goal is to create a model that identifies what a customer would be prone to adding to their shopping basket. At all times we want to get the customer to add one more item to their basket; once they add an item, we update our recommendation to get them to add another item.
+
+# Conditional probability models
+
+We can use the arules package in R to build rules for this task. Here we want to use a graphical model. There are advantages and disadvantages either way. My opinion is that graphical models have a more natural interface, and it is easier to identify meaningful rules.
+
+We will use the Groceries data set from the arules package.
+
+```{r}
+options(digits = 1)
+data(Groceries,package = "arules")
+Groceries
+```
+
+The data is stored in a sparse matrix format. We will need to convert it to a data.frame() before passing it to the bnlearn functions.
+
+```{r}
+M_Groceries <- as.data.frame(as(
+  object = Groceries,
+  Class = "matrix"
+))
+colnames(M_Groceries) <- make.names(colnames(M_Groceries))
+M_Groceries[1:6,1:6]
+```
+
+TRUE means the item is in the basket one or more times. FALSE means the item is not in the basket.
+
+To make it easier to interpret what is going on as we build the model(s), lets sort the rows and columns by their row sums, column sums. The items that appear in the most baskets will be in the left most columns; the baskets with the most distinct items are at the top.
+
+```{r}
+M_Groceries <- M_Groceries[
+  order(rowSums(M_Groceries),decreasing = TRUE),
+  order(colSums(M_Groceries),decreasing = TRUE)
+]
+```
+
+# Reduce the number of items in the model
+
+* Conditional probability models take a long time to compute.
+* Recommendations for rarely purchased items probably will be unsuccessful.
+* Recommendations based on rarely purchased items will rarely get used.
+
+Let's trim down the items in our model to the ones that account for 80% of the distinct items in a basket.
+
+```{r}
+v_sums <- colSums(M_Groceries)
+mean(cumsum(v_sums)/sum(v_sums) <= 0.8)
+sum(cumsum(v_sums)/sum(v_sums) <= 0.8)
+v_names <- names(v_sums[cumsum(v_sums)/sum(v_sums) <= 0.8])
+M_Groceries <- M_Groceries[,v_names]
+```
+
+To make output more compact, I converted TRUE/FALSE to "1"/"0" factors. Notice that zero and one are categorical instead of numeric. The bnlearn package would have build multiple linear regression models (numeric target variables); we want binary target variables.
+
+```{r}
+for(j in 1:ncol(M_Groceries)){
+  M_Groceries[,j] <- factor(as.numeric(M_Groceries[,j]))
+}
+```
+
+# Building the model
+
+Here are the possible algorithms in bnlearn that we can use to build the model. They are grouped by their method of identifying relationships.
+
+Before writing this, I benchmarked each algorithm on a subset of the data. Each group is ordered by computation time. 
+
+* iamb.fdr() was the fastest constraint-based algorithm.
+* hc() was the fastest score-based algorithm.
+* h2pc() was the fastest hybrid algorithm.
+* aracne() was the fastest local discovery algorithm (I have never had success with the local discovery algorithms).
+
+My experience is that the constraint-based and score-based algorithms are the best ones for my tasks at work.
+
+```{r}
+v_algorithms <- c(
+  "iamb.fdr","fast.iamb","inter.iamb","gs","iamb","hpc","si.hiton.pc","mmpc","pc.stable",
+  "hc","tabu",
+  "h2pc","mmhc","rsmax2",
+  "aracne","chow.liu"
+)
+require(bnlearn)
+```
+
+For this presentation, I did not run this code chunk. It took too long to run. I would run this overnight if I needed the best model possible. Then use BIC(), AIC(), logLik(), or another network score to determine which model to use.
+
+```{r}
+## list_bnlearn <- list()
+## for(j in v_algorithms) try({
+##   list_bnlearn[[j]] <- do.call(
+##     what = j,
+##     args = list(x = M_Groceries[,v_names])
+##   )
+## },silent = TRUE)
+```
+
+My experience is that hc() (hill-climber) gives solid results, and is fast. For this case study, let's use hc() as our model.
+
+```{r}
+list_bnlearn <- list()
+for(j in "hc") try({
+  list_bnlearn[[j]] <- do.call(
+    what = j,
+    args = list(x = M_Groceries[,v_names])
+  )
+},silent = TRUE)
+```
+
+Unfortunately, the bnlearn package has multiple model structures. To fully take advantage of the model, we need to convert the model using bn.fit()
+
+```{r}
+bn_Groceries <- bn.fit(
+  x = list_bnlearn[["hc"]],
+  data = M_Groceries[,v_names]
+)
+```
+
+# Scoring some data
+
+Let's run the model on some baskets in the data, and see what the model recommends.
+
+```{r}
+v_subset <- sort(sample.int(
+  n = nrow(M_Groceries),
+  size = 6
+))
+subset_Groceries <- M_Groceries[v_subset,]
+predict_Groceries <- matrix(
+  data = 0,
+  nrow = nrow(subset_Groceries),
+  ncol = ncol(subset_Groceries)
+)
+rownames(predict_Groceries) <- rownames(subset_Groceries)
+colnames(predict_Groceries) <- colnames(subset_Groceries)
+v_index <- 1:ncol(subset_Groceries)
+```
+
+The predict() function gives "0" or "1" as its standard output. We need to extract probabilities (expected value of the Bernoulli variable). We use attr() to get the estimated expected value.
+
+```{r}
+for(j in 1:nrow(subset_Groceries)){
+  for(k in v_index[subset_Groceries[j,] == "0"]){
+    predict_Groceries[j,k] <- attr(
+      x = predict(
+        object = bn_Groceries,
+        data = subset_Groceries[j,-k],
+        node = v_names[k],
+        prob = TRUE
+      ),
+      which = "prob"
+    )["1",1]
+  }
+}
+predict_Groceries[,1:6]
+```
+
+Let's reshape the data so we can see the relationship between items in a basket, and recommended items.
+
+```{r}
+list_predict <- list()
+for(j in 1:nrow(subset_Groceries)){
+  list_predict[[j]] <- list()
+  list_predict[[j]]$In_Basket <- v_names[subset_Groceries[j,] == "1"]
+  list_predict[[j]]$Promote <- sort(predict_Groceries[j,predict_Groceries[j,] > 0],decreasing = TRUE)
+}
+list_predict
+```

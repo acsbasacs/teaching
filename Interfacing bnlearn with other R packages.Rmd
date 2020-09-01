@@ -1,0 +1,240 @@
+---
+title: "Interfacing bnlearn with other R packages"
+author: "Aaron Smith"
+date: "6/27/2020"
+output: word_document
+---
+
+There are a lot of specialized packages in R for working with graphical models. Different packages have different advantages and disadvantages. Different packages have different object classes for storing output. To fully leverage graphical models in R, we need to be able to move between packages.
+
+Much of the code presented here is copied or modified from
+https://www.bnlearn.com/
+
+Here are two books that go deeper into the bnlearn package:
+
+https://www.bnlearn.com/book-useR/
+
+https://www.bnlearn.com/book-crc/
+
+The first book can be downloaded from SpringerLink through UCF's library. The two books and website overlap a lot; it will be worth your time to work through all three if you are going to use Bayesian networks professionally.
+
+# Interfacing bnlearn with the deal R package
+
+The deal package is one of the oldest R packages for structure and parameter learning; notably, it supports conditional linear Gaussian networks. It implements a single option for learning: hill climbing with a posterior score followed by posterior estimates of the parameters.
+
+## Exporting a network structure to deal
+
+It is possible to export a network structure learned from data to deal; since deal does not have separate classes for network structures and fitted networks (e.g. like bn vs bn.fit objects in bnlearn), it is not possible to export a network structure that does not have an associated data set, such as one created with modelstring(). Furthermore, deal does not support partially directed graphs, so the network structure must be completely directed.
+
+Since the two packages use the same model string representation, that is the easiest way of exporting the network structure. Both packages have functions called modelstring() that take network models and return their string representation; and as.network() in deal does the opposite, much like model2network() in bnlearn.
+
+
+```{r}
+library(bnlearn)
+data(alarm)
+hc_alarm = hc(alarm)
+modelstring_alarm <- bnlearn::modelstring(hc_alarm)
+node_ordering_alarm <- bnlearn::node.ordering(hc_alarm)
+alarm <- alarm[,node_ordering_alarm]
+```
+
+Note that deal requires the columns of the data set to follow the topological ordering of the nodes in the graph.
+
+```{r}
+#library(deal)
+deal_alarm <- deal::network(alarm[,node_ordering_alarm])
+deal_alarm <- deal::as.network(modelstring_alarm, deal_alarm)
+deal::modelstring(deal_alarm)
+modelstring_alarm
+```
+
+## Importing a network structure from deal
+
+The same technique can be used to import a network structure from deal.
+
+```{r}
+bnlearn::model2network(deal::modelstring(deal_alarm))
+```
+
+# Interfacing with the pcalg R package
+
+The pcalg package is a versatile R package for structure learning. It implements both score-based algorithms such as the Greedy Equivalent Search (GES) and constraint-based algorithms such as the PC. It is one of the few R packages that can handle discrete data sets as well as cotinuous data sets.
+Exporting a network structure to pcalg
+
+Exporting bn or bn.fit objects to pcalg is not currently implemented in bnlearn.
+
+## Importing a network structure from pcalg
+
+Importing network structures is implementeed in as.bn().
+
+To learn a model with pcalg, you need a conditional independence test.
+
+* pcalg::dsepTest() test for d-separation in a DAG
+* pcalg::binCItest() G square Test for conditional Independence of Binary Variable
+* pcalg::disCItest() a conditional independence test for discretevariables
+* pcalg::gaussCItest() conditional independence test for Gaussian variable
+
+To learn a discrete model with pcalg::pc(), the levels of the variables need to be coded as non-negative integers, 0, 1, 2,....
+
+```{r}
+v_nlevels <- sapply(X = alarm,FUN = nlevels)
+integer_alarm <- sapply(
+  X = alarm,
+  FUN = function(x) as.integer(x) - 1
+)
+list_suffStat <- list(
+  dm = integer_alarm,
+  nlev = v_nlevels,
+  adaptDF = FALSE
+)
+pcalg_alarm <- pcalg::pc(
+  suffStat = list_suffStat,
+  indepTest =  pcalg::disCItest,
+  alpha = 0.01,
+  labels = colnames(alarm)
+)
+pcalg::iplotPC(pcalg_alarm)
+bnlearn::as.bn(pcalg_alarm)
+```
+
+Importing fitted Bayesian networks into bn.fit objects is not supported. Note that as graphs are imported with as.bn() they are checked to be acyclic, unless the user specifies check.cycles = FALSE. 
+
+# Interfacing with the graph R package
+
+The graph package is available from Bioconductor and it is one of the most popular packages to work on graphs (both directed and undirected). It implements a variety of algorithms for random graph generation, centrality statistics, graph distances, nodes and arcs manipulation utilities, and it provides a strong foundation for the Rgraphviz package. For this reason, bnlearn implements functions to import and export network structures to graph as:
+
+* graphNEL objects, which encode the graph as a list in which each element refer to one of the nodes in the graph and contains a vector with its children;
+* graphAM objects, which encode the graph as a matrix in which the (i, j) cell is equal to one if there is an arc from the ith node to the jth node and zero otherwise.
+
+## Exporting a network structure to graph
+
+Exporting the objects is achieved with the conversion methods as.graphNEL() and as.graphAM().
+
+```{r}
+graphNEL_alarm <- bnlearn::as.graphNEL(hc_alarm)
+graphNEL_alarm
+graphAM_alarm <- bnlearn::as.graphAM(hc_alarm)
+graphAM_alarm
+```
+
+Both methods accept objects of class bn.fit as well as of class bn, and they implicitly call bn.net() on the former to export them.
+
+```{r}
+bn_alarm <- bnlearn::bn.fit(
+  x = hc_alarm,
+  data = alarm
+)
+bnlearn::as.graphNEL(bn_alarm)
+bnlearn::as.graphAM(bn_alarm)
+```
+
+## Importing a network structure from graph
+
+Importing network structures works in the same way, with a conversion method bnlearn::as.bn().
+
+```{r}
+bnlearn::as.bn(graphNEL_alarm)
+bnlearn::as.bn(graphAM_alarm)
+```
+
+Note that as graphs are imported with as.bn() they are checked to be acyclic, unless the user specifies check.cycles = FALSE.
+
+```{r}
+M <-  matrix(0, nrow = 3, ncol = 3)
+M[1, 2] <- 1
+M[2, 3] <- 1
+M[3, 1] <- 1
+cyclic = graph::graphAM(M, edgemode = "directed")
+try(as.bn(cyclic))
+as.bn(cyclic, check.cycles = FALSE)
+```
+
+# Interfacing with the igraph R package
+
+The igraph package is the R interface to the igraph library for network analysis. It implements an extensive selection of algorithms for creating and generating directed and undirected graphs, manipulating nodes and arcs, and it provides highly customizable plotting facilities. For this reason, bnlearn implements functions to import and export network structures to igraph's native objects, which are themselves of class igraph.
+Exporting a network structure to igraph
+
+Exporting objects is achieved with the conversion method igraph::as.igraph().
+
+```{r}
+igraph_alarm <- igraph::graph_from_adjacency_matrix(
+  adjmatrix = bnlearn::amat(hc_alarm),
+  mode = "directed"  
+)
+igraph_alarm
+plot(igraph_alarm)
+```
+
+Undirected arcs are exported as a pair of directed arcs, that is, Xi — Xj becomes {Xi → Xj, Xi ← Xj}.
+
+```{r}
+igraph::graph_from_adjacency_matrix(
+  adjmatrix = bnlearn::amat(hc_alarm),
+  mode = "undirected"  
+)
+```
+
+## Importing a network structure from igraph
+
+Importing network structures works in the same way, with a conversion method as.bn().
+
+```{r}
+M_alarm <- igraph::as_adjacency_matrix(
+  graph = igraph_alarm,
+  sparse = FALSE
+)
+bn_from_adjacency <- bnlearn::empty.graph(colnames(alarm))
+amat(bn_from_adjacency) <- M_alarm
+bn_from_adjacency
+```
+
+Note that as graphs are imported with as.bn() they are checked to be acyclic, unless the user specifies check.cycles = FALSE.
+
+# Interfacing with the gRain R package
+
+The gRain package is available from CRAN and provides the only implementation of exact inference in R; currently it only supports discrete Bayesian networks. The main data structure in gRain is the grain class, which stores a fitted Bayesian network as a list of conditional probability tables (much like bnlearn's bn.fit objects) and makes it possible for setEvidence() and querygrain() to perform posterior inference via belief propagation.
+Exporting a fitted Bayesian networks to gRain
+
+bn.fit objects can be exported with the conversion method as.grain().
+
+```{r}
+grain_alarm <- bnlearn::as.grain(
+  x = bn_alarm
+)
+grain_alarm
+```
+
+Only discrete networks can be exported, since gRain does not support networks with other parametric assumptions.
+
+The other important limitation of gRain, compared to bnlearn, is that it does not allow for conditional probabilities to be NaN. (This happens when estimating them via maximum likelihood and some parent configurations are not observed in the data.) In that case as.grain() will give a warning and replace the NaNs with uniform distributions, much like the Bayesian posterior estimator would.
+
+## Importing a network structure from gRain
+
+Importing network structures works in the same way, with a conversion method as.bn.fit().
+
+```{r}
+grain_to_bn_fit <- as.bn.fit(
+  x = grain_alarm
+)
+all.equal(bn_alarm,grain_to_bn_fit)
+```
+
+For convenience, bnlearn also provides an as.bn() conversion function that returns the network structure underlying the grain object as a bn object.
+
+```{r}
+grain_to_bn <- as.bn(
+  x = grain_alarm
+)
+all.equal(hc_alarm,grain_to_bn)
+```
+
+Note that by default as.bn.fit() disregards any evidence that has been set in the grain object with setEvidence(). So, for instance, setting B equal to b does not have any effect on the conditional probability table for node B in the returned bn.fit object.
+
+```{r}
+setEvidence_alarm = gRain::setEvidence(
+  object = grain_alarm,
+  node = "MVS", state = "HIGH"
+)
+as.bn.fit(setEvidence_alarm)$MVS
+```
+

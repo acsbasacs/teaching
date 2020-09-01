@@ -1,0 +1,119 @@
+---
+title: "Bayesian networks"
+author: "Aaron Smith"
+date: "5/30/2020"
+output: word_document
+---
+
+Graphical models treat all variables as predictors and as target variables.
+
+The bnlearn package has structure-learning algorithms. This is the strongest aspect of the package.
+
+bnlearn supports data sets with all factor variables very well.
+bnlearn has features to support models for data sets with all numeric variables.
+bnlearn has the fewest features for mixed data types.
+
+# The hailfinder data set
+
+```{r,warning = FALSE}
+options(digits = 1)
+require(bnlearn)
+
+data(hailfinder,package = "bnlearn") ## all factors
+summary(hailfinder)
+```
+
+# A quick example of a graphical model
+
+Let's look a an example of a graphical model.
+
+```{r,warning = FALSE}
+model_hailfinder <- hc(hailfinder)
+graphviz.plot(model_hailfinder)
+```
+
+# Strength plots
+
+Strength plots visually shows the strength between variables.
+
+There are three types of errors.
+
+* Includeing an arc/edge when there should not be one
+* Missing an arc/edge when there should be one
+* Arc pointed in the wrong direction
+
+```{r,warning = FALSE}
+arc.strength_hailfinder <- arc.strength(
+  x = model_hailfinder,
+  data = hailfinder
+)
+strength.plot(
+  x = model_hailfinder,
+  strength = arc.strength_hailfinder
+)
+```
+
+# Other plots
+
+Unfortunately, the bnlearn package has multiple object classes that fill similar purposes. To be able to use all of the features of the package, we need to be able to convert object classes.
+
+These plots only work for discrete data sets.
+
+```{r,warning = FALSE}
+bn_hailfinder <- bn.fit(
+  x = model_hailfinder,
+  data = hailfinder
+)
+graphviz.chart(
+  x = bn_hailfinder,
+  type = "barchart"
+)
+graphviz.chart(
+  x = bn_hailfinder,
+  type = "dotplot"
+)
+graphviz.chart(
+  x = bn_hailfinder,
+  type = "barprob"
+)
+```
+
+# Model fitting
+
+In machine learning, we fit multiple models. Measure the quality of each model and select the best one.
+
+With graphical models, all variables are predictors and target variables.
+
+bnlearn supports using cross-validation well. In this example, we will use repeated two-fold cross-validation.
+
+```{r,warning = FALSE}
+v_models <- c(
+  "pc.stable","gs","iamb","fast.iamb","inter.iamb","iamb.fdr",
+  "hc", "tabu",
+  "mmhc","rsmax2","h2pc",
+  "mmpc","si.hiton.pc","hpc", 
+  "chow.liu","aracne"
+)
+
+list_cv <- list()
+for(j in v_models) try({ 
+  list_cv[[j]] <- bn.cv(
+    data = hailfinder,
+    bn = j,
+    k = 2,
+    runs = 2
+  )
+},silent = TRUE)
+list_cv
+list_mean <- list()
+for(j in names(list_cv)){
+  for(k in 1:length(list_cv[[j]])){
+    list_mean[[j]][[k]] <- rep(NA,length(list_cv[[j]][[k]]))
+    for(l in 1:length(list_cv[[j]][[k]])){
+      list_mean[[j]][[k]][l] <- list_cv[[j]][[k]][[l]]$loss
+    }
+  }
+  list_mean[[j]] <- unlist(list_mean[[j]])
+}
+sort(base::sapply(X = list_mean,FUN = mean))
+```

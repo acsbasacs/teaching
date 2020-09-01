@@ -1,0 +1,189 @@
+---
+title: "Graphing bnlearn models with Rgraphviz"
+author: "Aaron Smith"
+date: "6/25/2020"
+output: word_document
+---
+
+To get the most out our Bayesian networks, we need to creat visually appealing and informative visualizations of our graphs.
+
+For models from the bnlearn package, the Rgraphviz package enables us to build compelling plots.
+
+# Load the data
+
+For this example, we will use the alarm data set in the bnlearn package. Then build a model, and visualize the model.
+
+```{r,warning = FALSE}
+require(bnlearn)
+data(alarm)
+hc_alarm <- hc(alarm)
+```
+
+# Node attributes
+
+There is a list of node attributes that we can control in Rgraphviz plots. The ones that Dr. Smith finds the most useful are
+
+* fillcolor
+* shape
+
+Node attributes are labeled as nodeAttrs in the plot function, are contained in named lists, and need to be named vectors with the node being the name.
+
+```{r,warning = FALSE}
+v_nodes <- nodes(hc_alarm)
+names(v_nodes) <- v_nodes
+strength_alarm <- arc.strength(
+  x = hc_alarm,
+  data = alarm
+)
+n_nodes <- nnodes(hc_alarm)
+
+v_fillcolor <- viridis::viridis(n_nodes)
+names(v_fillcolor) <- v_nodes
+
+v_shape <- c(
+  rep("circle",floor(n_nodes/3)),
+  rep("ellipse",floor(n_nodes/3)),
+  rep("box",n_nodes - 2*floor(n_nodes/3))
+)
+names(v_shape) <- v_nodes
+```
+
+# Edge attributes
+
+There is a list of edge attributes that we can control in Rgraphviz plots. The ones that Dr. Smith finds the most useful are
+
+* label
+* color
+* fontcolor
+
+Edge attributes are labeled as edgeAttrs in the plot function, are contained in named lists, and need to be named vectors with the edge being the name. 
+
+Edges are named with this convention:
+node_1~node_2
+
+```{r,warning = FALSE}
+v_edges <- paste0(strength_alarm[,"from"],"~",strength_alarm[,"to"])
+names(v_edges) <- v_edges
+
+v_edgecolor <- v_fillcolor[strength_alarm[,"from"]]
+names(v_edgecolor) <- v_edges
+```
+
+# Converting the bnlearn model to a graphNEL model
+
+R has a ton of specialized packages for graphical models. To use Rgraphviz, we need to convert our bnlearn model to a graphNEL model.
+
+```{r,warning = FALSE}
+graphNEL_alarm <- as.graphNEL(hc_alarm)
+```
+
+# Plotting the model
+
+The layout of the model has a big impact on how the results look. The layout options are
+
+* dot
+* neato
+* twopi
+* circo
+* fdp
+
+The following plots all show the same model, just different layouts.
+
+## dot
+
+```{r,warning = FALSE}
+Rgraphviz::plot(
+  x = graphNEL_alarm,
+  y = "dot",
+  attrs = list(), 
+  nodeAttrs = list(
+    fillcolor = v_fillcolor,
+    shape = v_shape
+  ), 
+  edgeAttrs = list(
+    label = v_edges,
+    weight = graph::edgeWeights(graphNEL_alarm),
+    color = v_edgecolor,
+    fontcolor = v_edgecolor
+  )
+)
+```
+
+## neato
+
+```{r,warning = FALSE}
+Rgraphviz::plot(
+  x = graphNEL_alarm,
+  y = "neato",
+  attrs = list(), 
+  nodeAttrs = list(
+    fillcolor = v_fillcolor,
+    shape = v_shape
+  ), 
+  edgeAttrs = list(
+    label = v_edges,
+    color = v_edgecolor,
+    fontcolor = v_edgecolor
+  )
+)
+```
+
+## twopi
+
+```{r,warning = FALSE}
+Rgraphviz::plot(
+  x = graphNEL_alarm,
+  y = "twopi",
+  attrs = list(), 
+  nodeAttrs = list(
+    fillcolor = v_fillcolor,
+    shape = v_shape
+  ), 
+  edgeAttrs = list(
+    label = v_edges,
+    weight = graph::edgeWeights(graphNEL_alarm),
+    color = v_edgecolor,
+    fontcolor = v_edgecolor
+  )
+)
+```
+
+## circo
+
+```{r,warning = FALSE}
+Rgraphviz::plot(
+  x = graphNEL_alarm,
+  y = "circo",
+  attrs = list(), 
+  nodeAttrs = list(
+    fillcolor = v_fillcolor,
+    shape = v_shape
+  ), 
+  edgeAttrs = list(
+    label = v_edges,
+    weight = graph::edgeWeights(graphNEL_alarm),
+    color = v_edgecolor,
+    fontcolor = v_edgecolor
+  )
+)
+```
+
+## fdp
+
+```{r,warning = FALSE}
+Rgraphviz::plot(
+  x = graphNEL_alarm,
+  y = "fdp",
+  attrs = list(), 
+  nodeAttrs = list(
+    fillcolor = v_fillcolor,
+    shape = v_shape
+  ), 
+  edgeAttrs = list(
+    label = v_edges,
+    weight = graph::edgeWeights(graphNEL_alarm),
+    color = v_edgecolor,
+    fontcolor = v_edgecolor
+  )
+)
+```

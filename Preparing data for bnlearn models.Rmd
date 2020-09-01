@@ -1,0 +1,116 @@
+---
+title: "Preparing data for bnlearn models"
+author: "Aaron Smith"
+date: "6/24/2020"
+output: word_document
+---
+
+Let's use bnlearn::preprocess() to discretize some data, then build Bayesian networks to compare the data preparation techniques.
+
+The bnlearn::preprocess() function gives us three ways to discretize numeric data.
+
+* interval: constant subinterval width
+* quantile: all subintervals have (approximately) the same number of observations
+* Hartemink: use mutual information to determine cutoffs
+
+# Load the data
+
+We will use the gaussian.test data from bnlearn.
+
+```{r}
+options(digits = 1)
+require(bnlearn)
+
+data(gaussian.test)
+head(gaussian.test)
+summary(gaussian.test)
+```
+
+# Discretize the data
+
+Let's use the three discretize methods on the data set, and store the prepared data in a list.
+
+```{r}
+M <- gaussian.test
+
+list_M <- lapply(
+  X = c("interval","quantile","hartemink"),
+  FUN = function(method) discretize(
+    data = M,
+    method = method,
+    breaks = 4,
+    ordered = TRUE
+  )
+)
+names(list_M) <- c("interval","quantile","hartemink")
+lapply(X = list_M,FUN = summary)
+```
+
+# Build the Bayesian networks
+
+Now let's build the models. Some of the algorithms generate partially ordered networks. To make the models more consistent, let's use bnlearn::choose.direction() to order all graphs.
+
+```{r}
+v_algorithms <- c(
+  "pc.stable","gs","iamb","fast.iamb","inter.iamb","iamb.fdr","mmpc","si.hiton.pc","hpc",
+  "hc","tabu",
+  "rsmax2","mmhc","h2pc",
+  "aracne","chow.liu"
+)
+list_bnlearn <- list()
+```
+
+```{r,warning = FALSE}
+for(j in v_algorithms) for(k in names(list_M)) try({
+  list_bnlearn[[j]][[k]] <- do.call(
+    what = j,
+    args = list(x = list_M[[k]])
+  )
+  M_arcs <- arcs(list_bnlearn[[j]][[k]])
+  for(l in 1:nrow(M_arcs)){
+    list_bnlearn[[j]][[k]] <- set.arc(
+      x = list_bnlearn[[j]][[k]],
+      from = M_arcs[l,1],
+      to = M_arcs[l,2],
+      check.cycles = FALSE,
+      check.illegal = FALSE
+    )
+    list_bnlearn[[j]][[k]] <- choose.direction(
+      x = list_bnlearn[[j]][[k]],
+      arc = M_arcs[l,],
+      data = list_M[[k]]
+    )
+  }
+},silent = TRUE)
+```
+
+# Scoring the networks
+
+Now let's use Bayesian information criterion to evaluate each model.
+
+```{r}
+M_score <- matrix(
+  data = NA,
+  nrow = length(v_algorithms),
+  ncol = length(list_M),
+)
+rownames(M_score) <- v_algorithms
+colnames(M_score) <- names(list_M)
+
+for(j in v_algorithms) for(k in names(list_M)) try({
+  M_score[j,k] <- score(
+    x = list_bnlearn[[j]][[k]],
+    data = list_M[[k]],
+    type = "bic"
+  )
+})
+for(j in rownames(M_score)) M_score <- M_score[,order(M_score[j,])]
+for(j in colnames(M_score)) M_score <- M_score[order(M_score[,j]),]
+M_score
+```
+
+```{r}
+graphviz.plot(
+  list_bnlearn[[nrow(M_score)]][[ncol(M_score)]]
+)
+```
